@@ -10358,10 +10358,250 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/administrators": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    Search?: string;
+                    Status?: components["schemas"]["AccountStatus"];
+                    Role?: string;
+                    Page?: number | string;
+                    PageSize?: number | string;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["AdminAccountPage"];
+                        "application/json": components["schemas"]["AdminAccountPage"];
+                        "text/json": components["schemas"]["AdminAccountPage"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["CreateAdminAccountRequest"];
+                    "text/json": components["schemas"]["CreateAdminAccountRequest"];
+                    "application/*+json": components["schemas"]["CreateAdminAccountRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["AdminAccountDto"];
+                        "application/json": components["schemas"]["AdminAccountDto"];
+                        "text/json": components["schemas"]["AdminAccountDto"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/administrators/{publicId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    publicId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["AdminAccountDto"];
+                        "application/json": components["schemas"]["AdminAccountDto"];
+                        "text/json": components["schemas"]["AdminAccountDto"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/administrators/{publicId}/roles": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    publicId: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["UpdateAdminRolesRequest"];
+                    "text/json": components["schemas"]["UpdateAdminRolesRequest"];
+                    "application/*+json": components["schemas"]["UpdateAdminRolesRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["AdminAccountDto"];
+                        "application/json": components["schemas"]["AdminAccountDto"];
+                        "text/json": components["schemas"]["AdminAccountDto"];
+                    };
+                };
+            };
+        };
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/administrators/{publicId}/actions/resend-invitation": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    publicId: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["ResendAdminInvitationRequest"];
+                    "text/json": components["schemas"]["ResendAdminInvitationRequest"];
+                    "application/*+json": components["schemas"]["ResendAdminInvitationRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/auth/invitations/accept": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["AcceptAdminInvitationRequest"];
+                    "text/json": components["schemas"]["AcceptAdminInvitationRequest"];
+                    "application/*+json": components["schemas"]["AcceptAdminInvitationRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        AcceptAdminInvitationRequest: {
+            /** Format: uuid */
+            publicId?: string;
+            token: string;
+            newPassword: string;
+        };
         AcceptedPolicyVersions: {
             /** Format: int32 */
             terms: number | string;
@@ -10392,6 +10632,33 @@ export interface components {
             quantity: number | string;
             /** Format: byte */
             cartRowVersion: null | string;
+        };
+        AdminAccountDto: {
+            /** Format: uuid */
+            publicId: string;
+            displayName: string;
+            employeeCode: string;
+            email: string;
+            status: string;
+            emailVerified: boolean;
+            twoFactorEnabled: boolean;
+            roles: string[];
+            /** Format: date-time */
+            createdAtUtc: string;
+            /** Format: date-time */
+            updatedAtUtc: string;
+            /** Format: byte */
+            rowVersion: string;
+        };
+        AdminAccountPage: {
+            items: components["schemas"]["AdminAccountDto"][];
+            /** Format: int32 */
+            totalCount: number | string;
+            /** Format: int32 */
+            page: number | string;
+            /** Format: int32 */
+            pageSize: number | string;
+            availableRoles: string[];
         };
         AdminAiUsageReportDto: {
             /** Format: date-time */
@@ -11681,6 +11948,13 @@ export interface components {
             perMemberLimit: null | number | string;
             /** Format: int32 */
             remainingCount: null | number | string;
+        };
+        CreateAdminAccountRequest: {
+            email: string;
+            displayName: string;
+            employeeCode: string;
+            roles: string[];
+            confirmSuperAdmin?: boolean;
         };
         CreateAdminSupportReplyRequest: {
             body: string;
@@ -13154,6 +13428,10 @@ export interface components {
             bucket: string;
             metrics: components["schemas"]["ReportMetricDto"][];
         };
+        ResendAdminInvitationRequest: {
+            /** Format: byte */
+            rowVersion: string;
+        };
         /** @enum {unknown} */
         RestockDisposition: "resellable" | "quarantine" | "scrap" | null;
         RetryOutboxMessageRequest: {
@@ -13718,6 +13996,13 @@ export interface components {
             reason?: string;
             /** Format: byte */
             rowVersion?: string;
+        };
+        UpdateAdminRolesRequest: {
+            roles: string[];
+            /** Format: byte */
+            rowVersion: string;
+            reasonCode: string;
+            confirmSuperAdmin?: boolean;
         };
         UpdateBrandRequest: {
             nameZhTw: string;

@@ -88,6 +88,17 @@ describe('admin shell navigation', () => {
     expect(wrapper.text()).not.toContain('優惠券管理')
   })
 
+  it('shows administrator account management only to SuperAdmin', async () => {
+    signIn(['PrivacyAdmin'])
+    const privacyShell = await mountShell()
+    expect(privacyShell.text()).not.toContain('管理員帳號')
+    privacyShell.unmount()
+
+    signIn(['SuperAdmin'])
+    const superAdminShell = await mountShell()
+    expect(superAdminShell.text()).toContain('管理員帳號')
+  })
+
   /**
    * 組長 PR #78 round-2 review item 2：兩個物流入口的角色不同——門市是 ShippingRead
    * （OrderManager／CatalogManager／SuperAdmin），包裹限制是 ShippingManage（只有前者兩個）。

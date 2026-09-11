@@ -9,6 +9,13 @@ public static class ApiErrorCodes
     public const string AiServiceUnavailable = "ai_service_unavailable";
     public const string AiUsageLimitExceeded = "ai_usage_limit_exceeded";
     public const string AntiforgeryValidationFailed = "antiforgery_validation_failed";
+    public const string AdminEmailDuplicate = "admin_email_duplicate";
+    public const string AdminEmployeeCodeDuplicate = "admin_employee_code_duplicate";
+    public const string AdminInvitationInvalid = "admin_invitation_invalid";
+    public const string AdminRoleInvalid = "admin_role_invalid";
+    public const string LastSuperAdminRequired = "last_super_admin_required";
+    public const string SelfDemotionForbidden = "self_demotion_forbidden";
+    public const string SuperAdminConfirmationRequired = "super_admin_confirmation_required";
     public const string AuthenticationRequired = "authentication_required";
     public const string AuthorizationForbidden = "authorization_forbidden";
     public const string ConcurrencyConflict = "concurrency_conflict";

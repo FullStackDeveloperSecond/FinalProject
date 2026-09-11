@@ -11,7 +11,9 @@ const search = ref('')
 const appliedSearch = ref('')
 const status = ref('')
 const page = ref(1)
+const expandedPublicId = ref<string | null>(null)
 const selected = ref<AdminMember | null>(null)
+const detailLoading = ref(false)
 const busy = ref(false)
 const message = ref('')
 const reason = ref('')
@@ -36,14 +38,46 @@ watch(status, () => { page.value = 1 })
 const filters = computed(() => ({ Search: appliedSearch.value || undefined, Status: status.value || undefined, Page: page.value, PageSize: 20 }))
 const query = useQuery({ queryKey: computed(() => ['admin-members', filters.value]), queryFn: () => listMembers(filters.value) })
 let detailGeneration = 0
-watch(filters, () => { detailGeneration++; selected.value = null; reason.value = ''; message.value = '' })
-async function select(publicId: string) {
-  const generation = ++detailGeneration
+watch(filters, () => {
+  detailGeneration++
+  expandedPublicId.value = null
   selected.value = null
+  detailLoading.value = false
+  reason.value = ''
+  message.value = ''
+})
+function memberDetailId(publicId: string) {
+  return `member-detail-${publicId.replace(/[^a-zA-Z0-9_-]/g, '-')}`
+}
+function closeDetail() {
+  detailGeneration++
+  expandedPublicId.value = null
+  selected.value = null
+  detailLoading.value = false
+  reason.value = ''
+}
+async function toggleDetail(publicId: string) {
+  if (expandedPublicId.value === publicId) {
+    closeDetail()
+    return
+  }
+  const generation = ++detailGeneration
+  expandedPublicId.value = publicId
+  selected.value = null
+  detailLoading.value = true
   message.value = ''
   reason.value = ''
-  try { const member = await getMember(publicId); if (generation === detailGeneration) selected.value = member }
-  catch { if (generation === detailGeneration) message.value = '無法載入會員詳情，請重試。' }
+  try {
+    const member = await getMember(publicId)
+    if (generation === detailGeneration) selected.value = member
+  } catch {
+    if (generation === detailGeneration) {
+      expandedPublicId.value = null
+      message.value = '無法載入會員詳情，請重試。'
+    }
+  } finally {
+    if (generation === detailGeneration) detailLoading.value = false
+  }
 }
 async function submit() {
   if (!selected.value || !canManage.value || !reason.value || busy.value) return
@@ -52,6 +86,7 @@ async function submit() {
   message.value = ''
   try {
     await changeMemberStatus(member.publicId, { active: member.status === 'Suspended', rowVersion: member.rowVersion, reasonCode: reason.value })
+    expandedPublicId.value = null
     selected.value = null
     detailGeneration++
     await query.refetch()
@@ -107,20 +142,84 @@ async function submit() {
       <div class="table-scroll">
         <table>
           <thead><tr><th>姓名</th><th>電子郵件</th><th>狀態</th><th>信箱驗證</th><th>操作</th></tr></thead><tbody>
-            <tr
+            <template
               v-for="member in query.data.value.items"
               :key="member.publicId"
             >
-              <td>{{ member.displayName }}</td><td>{{ member.emailMasked }}</td><td>{{ labels[member.status] ?? '未知狀態' }}</td><td>{{ member.emailVerified ? '已驗證' : '未驗證' }}</td><td>
-                <button
-                  type="button"
-                  :disabled="busy"
-                  @click="select(member.publicId)"
+              <tr class="member-row">
+                <td>{{ member.displayName }}</td><td>{{ member.emailMasked }}</td><td>{{ labels[member.status] ?? '未知狀態' }}</td><td>{{ member.emailVerified ? '已驗證' : '未驗證' }}</td><td>
+                  <button
+                    type="button"
+                    :disabled="busy"
+                    :aria-expanded="expandedPublicId === member.publicId"
+                    :aria-controls="memberDetailId(member.publicId)"
+                    @click="toggleDetail(member.publicId)"
+                  >
+                    {{ expandedPublicId === member.publicId ? '收合' : '詳情' }}
+                  </button>
+                </td>
+              </tr>
+              <Transition name="member-detail">
+                <tr
+                  v-if="expandedPublicId === member.publicId"
+                  :key="`${member.publicId}-detail`"
+                  class="member-detail-row"
                 >
-                  詳情
-                </button>
-              </td>
-            </tr>
+                  <td colspan="5">
+                    <div class="member-detail__reveal">
+                      <section
+                        :id="memberDetailId(member.publicId)"
+                        class="card member-detail__panel"
+                        :aria-labelledby="`${memberDetailId(member.publicId)}-title`"
+                      >
+                        <h2 :id="`${memberDetailId(member.publicId)}-title`">
+                          {{ member.displayName }}：會員詳情
+                        </h2>
+                        <p v-if="detailLoading || !selected">
+                          會員詳情載入中…
+                        </p>
+                        <template v-else>
+                          <dl class="member-detail__facts">
+                            <div><dt>電子郵件</dt><dd>{{ selected.emailMasked }}</dd></div>
+                            <div><dt>帳號狀態</dt><dd>{{ labels[selected.status] ?? '停用' }}</dd></div>
+                            <div><dt>建立時間</dt><dd>{{ new Date(selected.createdAtUtc).toLocaleString('zh-TW') }}</dd></div>
+                            <div><dt>更新時間</dt><dd>{{ new Date(selected.updatedAtUtc).toLocaleString('zh-TW') }}</dd></div>
+                          </dl>
+                          <form
+                            v-if="canManage && ['Active', 'Suspended'].includes(selected.status)"
+                            class="member-detail__action"
+                            @submit.prevent="submit"
+                          >
+                            <p>{{ selected.status === 'Active' ? '確認停用此會員？停用後現有登入將失效。' : '確認重新啟用此會員？未驗證的信箱仍不可啟用。' }}</p>
+                            <div class="member-detail__action-row">
+                              <label>操作原因 *<select
+                                v-model="reason"
+                                required
+                                :disabled="busy"
+                              ><option value="">請選擇</option><option value="user_request">會員要求</option><option value="policy_violation">違反使用規範</option><option value="resolved">問題已處理</option></select></label>
+                              <button
+                                type="submit"
+                                :disabled="busy || !reason"
+                              >
+                                {{ busy ? '處理中…' : selected.status === 'Active' ? '確認停用' : '確認啟用' }}
+                              </button>
+                            </div>
+                          </form>
+                          <button
+                            type="button"
+                            class="member-detail__close"
+                            :disabled="busy"
+                            @click="closeDetail"
+                          >
+                            關閉詳情
+                          </button>
+                        </template>
+                      </section>
+                    </div>
+                  </td>
+                </tr>
+              </Transition>
+            </template>
           </tbody>
         </table>
       </div>
@@ -131,55 +230,19 @@ async function submit() {
         aria-label="會員分頁"
       />
     </template>
-    <section
-      v-if="selected"
-      aria-labelledby="member-detail-title"
-      class="card"
-    >
-      <h2 id="member-detail-title">
-        {{ selected.displayName }}：會員詳情
-      </h2>
-      <dl class="member-detail__facts">
-        <div><dt>電子郵件</dt><dd>{{ selected.emailMasked }}</dd></div>
-        <div><dt>帳號狀態</dt><dd>{{ labels[selected.status] ?? '停用' }}</dd></div>
-        <div><dt>建立時間</dt><dd>{{ new Date(selected.createdAtUtc).toLocaleString('zh-TW') }}</dd></div>
-        <div><dt>更新時間</dt><dd>{{ new Date(selected.updatedAtUtc).toLocaleString('zh-TW') }}</dd></div>
-      </dl>
-      <form
-        v-if="canManage && ['Active', 'Suspended'].includes(selected.status)"
-        class="member-detail__action"
-        @submit.prevent="submit"
-      >
-        <p>{{ selected.status === 'Active' ? '確認停用此會員？停用後現有登入將失效。' : '確認重新啟用此會員？未驗證的信箱仍不可啟用。' }}</p>
-        <div class="member-detail__action-row">
-          <label>操作原因 *<select
-            v-model="reason"
-            required
-            :disabled="busy"
-          ><option value="">請選擇</option><option value="user_request">會員要求</option><option value="policy_violation">違反使用規範</option><option value="resolved">問題已處理</option></select></label>
-          <button
-            type="submit"
-            :disabled="busy || !reason"
-          >
-            {{ busy ? '處理中…' : selected.status === 'Active' ? '確認停用' : '確認啟用' }}
-          </button>
-        </div>
-      </form>
-      <button
-        type="button"
-        class="member-detail__close"
-        :disabled="busy"
-        @click="selected = null"
-      >
-        關閉詳情
-      </button>
-    </section>
   </section>
 </template>
 
 <style scoped>
 .members-filters { display: flex; flex-wrap: wrap; gap: 1rem; margin-block: 1rem; }
 .members-filters label { display: grid; gap: .4rem; }
+.member-detail-row > td { padding: 0; background: var(--color-surface-soft); }
+.member-detail__reveal { display: grid; grid-template-rows: 1fr; overflow: hidden; }
+.member-detail__panel { min-height: 0; margin: .75rem; overflow: hidden; }
+.member-detail-enter-active .member-detail__reveal,
+.member-detail-leave-active .member-detail__reveal { transition: grid-template-rows .24s ease, opacity .18s ease, transform .24s ease; }
+.member-detail-enter-from .member-detail__reveal,
+.member-detail-leave-to .member-detail__reveal { grid-template-rows: 0fr; opacity: 0; transform: translateY(-.5rem); }
 .member-detail__facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem 1.5rem; margin: 1.5rem 0; }
 .member-detail__facts div { display: grid; gap: .35rem; padding: .9rem 1rem; border: 1px solid var(--color-border-soft); border-radius: .65rem; background: var(--color-surface-strong); }
 .member-detail__facts dt { color: var(--color-text-muted); font-size: .875rem; }
@@ -190,4 +253,8 @@ async function submit() {
 .member-detail__action-row label { display: grid; gap: .4rem; }
 .member-detail__close { margin-top: 1rem; }
 @media (max-width: 42rem) { .member-detail__facts { grid-template-columns: 1fr; } }
+@media (prefers-reduced-motion: reduce) {
+  .member-detail-enter-active .member-detail__reveal,
+  .member-detail-leave-active .member-detail__reveal { transition: none; }
+}
 </style>

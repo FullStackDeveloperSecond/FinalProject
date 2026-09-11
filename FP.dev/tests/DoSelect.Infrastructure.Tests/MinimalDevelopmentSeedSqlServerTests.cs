@@ -1,4 +1,5 @@
 using DoSelect.Domain.Members;
+using DoSelect.Domain.Promotions;
 using DoSelect.Infrastructure.Persistence;
 using DoSelect.Infrastructure.Persistence.Identity;
 using DoSelect.Infrastructure.Persistence.Seeding;
@@ -78,6 +79,8 @@ public sealed class MinimalDevelopmentSeedSqlServerTests
                 var admin = await context.Users.SingleAsync(candidate =>
                     candidate.PublicId == MinimalDevelopmentSeedDefinitions.RefundJourneyAdminPublicId);
                 var profile = await context.AdminProfiles.SingleAsync(candidate => candidate.UserId == admin.Id);
+                var coupon = await context.Coupons.SingleAsync(candidate =>
+                    candidate.PublicId == MinimalDevelopmentSeedDefinitions.School2026CouponPublicId);
 
                 Assert.Equal(AccountStatus.Suspended, admin.AccountStatus);
                 Assert.False(profile.IsActive);
@@ -87,6 +90,16 @@ public sealed class MinimalDevelopmentSeedSqlServerTests
                     admin,
                     IdentityAdminAuthGateway.IdentityAuthenticatorLoginProvider,
                     IdentityAdminAuthGateway.IdentityAuthenticatorKeyTokenName));
+                Assert.Equal(DemoCouponUpdater.SchoolCode, coupon.Code);
+                Assert.Equal(CouponDiscountType.Percentage, coupon.DiscountType);
+                Assert.Equal(0.05m, coupon.DiscountValue);
+                Assert.Equal(0.10m, coupon.MultiItemDiscountValue);
+                Assert.Equal(CouponScopeType.All, coupon.ScopeType);
+                Assert.Null(coupon.MinimumSpend);
+                Assert.Null(coupon.MaximumDiscount);
+                Assert.Equal(1, coupon.PerMemberLimit);
+                Assert.False(coupon.MemberOnly);
+                Assert.False(await context.Coupons.AnyAsync(candidate => candidate.Code == "CREATOR10"));
             }
         }
         finally

@@ -48,6 +48,10 @@ public static class AuditActions
 
     // ⚠ alex review：30 分鐘 Lockout 必須跟中央 Audit 同一交易——見 AdminAuthController.Login。
     public const string AdminAccountLockout = "admin.account.lockout";
+    public const string AdminAccountCreate = "admin.account.create";
+    public const string AdminRolesUpdate = "admin.roles.update";
+    public const string AdminInvitationResend = "admin.invitation.resend";
+    public const string AdminInvitationAccept = "admin.invitation.accept";
     // DES-23: SupportTicket.Supervise/Handle admin actions. Each records only structured,
     // safe-code before/after markers (never free-text reasons or assignee identities) — the
     // admin-supplied free-text reason and the specific from/to admin identities live in the
@@ -801,6 +805,22 @@ internal static class AuditWritePolicy
                 AuditActions.AdminAccountLockout,
                 AuditResourceTypes.AdminAccount,
                 "lockoutEnd"),
+            [AuditActions.AdminAccountCreate] = Definition(
+                AuditActions.AdminAccountCreate,
+                AuditResourceTypes.AdminAccount,
+                "accountStatus", "role"),
+            [AuditActions.AdminRolesUpdate] = Definition(
+                AuditActions.AdminRolesUpdate,
+                AuditResourceTypes.AdminAccount,
+                "role", "securityStamp"),
+            [AuditActions.AdminInvitationResend] = Definition(
+                AuditActions.AdminInvitationResend,
+                AuditResourceTypes.AdminAccount,
+                "invitation", "securityStamp"),
+            [AuditActions.AdminInvitationAccept] = Definition(
+                AuditActions.AdminInvitationAccept,
+                AuditResourceTypes.AdminAccount,
+                "accountStatus"),
             [AuditActions.GuestOrderScopeViolation] = Definition(
                 AuditActions.GuestOrderScopeViolation,
                 AuditResourceTypes.Order,

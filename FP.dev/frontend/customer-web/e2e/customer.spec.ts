@@ -431,7 +431,7 @@ test('a guest can verify, view and cancel only the matching order without cross-
   await page.getByLabel('取消原因').selectOption('changed_mind')
   await page.getByLabel('補充說明（選填）').fill('WP-A02 瀏覽器驗證')
   await page.getByRole('button', { name: '確認取消訂單' }).click()
-  await expect(page.getByText('狀態：已取消', { exact: true })).toBeVisible()
+  await expect(page.locator('.record-detail__status')).toHaveText('已取消')
 
   await page.goto('/guest-orders/access')
   await page.getByLabel('訂單編號').fill(otherOrder.orderNumber)

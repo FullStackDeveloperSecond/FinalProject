@@ -56,6 +56,21 @@ public static class DoSelectRoles
     public const string MarketingAnalyst = "MarketingAnalyst";
     public const string PrivacyAdmin = "PrivacyAdmin";
     public const string SecurityAdmin = "SecurityAdmin";
+
+    public static IReadOnlyList<string> All { get; } = Array.AsReadOnly(
+        new[]
+        {
+            SuperAdmin,
+            CatalogManager,
+            InventoryManager,
+            OrderManager,
+            FinanceManager,
+            CustomerService,
+            CustomerServiceSupervisor,
+            MarketingAnalyst,
+            PrivacyAdmin,
+            SecurityAdmin,
+        });
 }
 
 public static class DoSelectPolicies

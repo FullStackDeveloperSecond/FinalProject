@@ -71,6 +71,12 @@ public sealed class TestAuthHandler : AuthenticationHandler<AuthenticationScheme
                     DoSelectRoles.MarketingAnalyst,
                     DoSelectRoles.SuperAdmin)
                 .Build());
+            options.AddPolicy(DoSelectPolicies.RoleAssignmentManage, new AuthorizationPolicyBuilder(SchemeName)
+                .RequireAuthenticatedUser()
+                .RequireClaim(DoSelectClaimTypes.AccountType, DoSelectClaimValues.Admin)
+                .RequireClaim(DoSelectClaimTypes.AuthenticationMethod, DoSelectClaimValues.MultiFactor)
+                .RequireRole(DoSelectRoles.SuperAdmin)
+                .Build());
         });
     }
 

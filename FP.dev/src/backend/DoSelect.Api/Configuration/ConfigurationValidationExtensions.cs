@@ -360,15 +360,24 @@ internal sealed class FrontendLinkOptionsValidator : IValidateOptions<FrontendLi
 {
     public ValidateOptionsResult Validate(string? name, FrontendLinkOptions options)
     {
-        if (!Uri.TryCreate(options.BaseUrl, UriKind.Absolute, out var uri) ||
-            (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps))
+        if (!IsAbsoluteHttpUrl(options.BaseUrl))
         {
             return ValidateOptionsResult.Fail(
                 "Configuration key 'Frontend:BaseUrl' must be an absolute HTTP or HTTPS URL.");
         }
 
+        if (!IsAbsoluteHttpUrl(options.AdminBaseUrl))
+        {
+            return ValidateOptionsResult.Fail(
+                "Configuration key 'Frontend:AdminBaseUrl' must be an absolute HTTP or HTTPS URL.");
+        }
+
         return ValidateOptionsResult.Success;
     }
+
+    private static bool IsAbsoluteHttpUrl(string value) =>
+        Uri.TryCreate(value, UriKind.Absolute, out var uri) &&
+        (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps);
 }
 
 internal sealed class RateLimitOptionsValidator : IValidateOptions<RateLimitOptions>

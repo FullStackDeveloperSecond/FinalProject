@@ -91,7 +91,7 @@ internal static class MinimalDevelopmentSeedDefinitions
     internal static readonly Guid CoreTransactionAssemblyGroupKey =
         Guid.Parse("3f6a0c1e-3b7e-4c1a-9f4d-5b6d9e2f1a09");
 
-    internal static readonly Guid Creator10CouponPublicId =
+    internal static readonly Guid School2026CouponPublicId =
         Guid.Parse("3f6a0c1e-3b7e-4c1a-9f4d-5b6d9e2f1a10");
 
     internal static readonly Guid ReturnE2eOrderPublicId =

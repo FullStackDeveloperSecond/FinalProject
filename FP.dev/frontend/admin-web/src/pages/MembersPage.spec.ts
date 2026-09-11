@@ -24,6 +24,13 @@ const member = {
   rowVersion: 'AAAA',
 }
 
+const secondMember = {
+  ...member,
+  publicId: 'member-2',
+  displayName: '第二位會員',
+  emailMasked: 's***@example.invalid',
+}
+
 describe('MembersPage', () => {
   beforeEach(() => {
     listMembers.mockReset()
@@ -53,7 +60,7 @@ describe('MembersPage', () => {
     const wrapper = mount(MembersPage, {
       global: {
         plugins: [pinia, [VueQueryPlugin, { queryClient }]],
-        stubs: { PagePager: true },
+        stubs: { PagePager: true, Transition: false },
       },
     })
     await flushPromises()
@@ -66,5 +73,44 @@ describe('MembersPage', () => {
     await flushPromises()
     expect(wrapper.findAll('.member-detail__facts > div')).toHaveLength(4)
     expect(wrapper.find('.member-detail__action').exists()).toBe(false)
+  })
+
+  it('expands one member detail directly below its row and toggles it closed', async () => {
+    listMembers.mockResolvedValue({ items: [member, secondMember], totalCount: 2, page: 1, pageSize: 20 })
+    getMember.mockImplementation(async (publicId: string) => publicId === member.publicId ? member : secondMember)
+    const pinia = createPinia()
+    setActivePinia(pinia)
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const wrapper = mount(MembersPage, {
+      global: {
+        plugins: [pinia, [VueQueryPlugin, { queryClient }]],
+        stubs: { PagePager: true, Transition: false },
+      },
+    })
+    await flushPromises()
+
+    const memberRows = wrapper.findAll('.member-row')
+    expect(wrapper.find('.member-detail-row').exists()).toBe(false)
+
+    await memberRows[0]!.get('button').trigger('click')
+    await flushPromises()
+    let bodyRows = wrapper.findAll('tbody > tr')
+    expect(bodyRows[1]!.classes()).toContain('member-detail-row')
+    expect(bodyRows[1]!.text()).toContain(member.displayName)
+    expect(memberRows[0]!.get('button').attributes('aria-expanded')).toBe('true')
+
+    await memberRows[1]!.get('button').trigger('click')
+    await flushPromises()
+    await new Promise(resolve => setTimeout(resolve, 300))
+    bodyRows = wrapper.findAll('tbody > tr')
+    expect(wrapper.findAll('.member-detail-row')).toHaveLength(1)
+    expect(bodyRows[2]!.classes()).toContain('member-detail-row')
+    expect(bodyRows[2]!.text()).toContain(secondMember.displayName)
+    expect(memberRows[0]!.get('button').attributes('aria-expanded')).toBe('false')
+
+    await memberRows[1]!.get('button').trigger('click')
+    await flushPromises()
+    await new Promise(resolve => setTimeout(resolve, 300))
+    expect(wrapper.find('.member-detail-row').exists()).toBe(false)
   })
 })

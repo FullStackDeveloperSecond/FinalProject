@@ -5,4 +5,6 @@ public sealed class FrontendLinkOptions
     public const string SectionName = "Frontend";
 
     public string BaseUrl { get; set; } = "http://localhost:5173";
+
+    public string AdminBaseUrl { get; set; } = "http://localhost:5174/admin";
 }

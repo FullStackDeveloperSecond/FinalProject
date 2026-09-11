@@ -21,6 +21,12 @@ const router = createRouter({
       meta: { requiresAuth: true, requiredRoles: adminRouteRoles['/members'] },
     },
     {
+      path: '/administrators',
+      name: 'administrators',
+      component: () => import('../pages/administrators/AdminAccountsPage.vue'),
+      meta: { requiresAuth: true, requiredRoles: adminRouteRoles['/administrators'] },
+    },
+    {
       path: '/',
       name: 'home',
       component: () => import('../pages/HomePage.vue'),
@@ -30,6 +36,12 @@ const router = createRouter({
       path: '/login',
       name: 'login',
       component: () => import('../features/auth/pages/LoginPage.vue'),
+      meta: { guestOnly: true },
+    },
+    {
+      path: '/login/invitation',
+      name: 'admin-invitation',
+      component: () => import('../features/auth/pages/AdminInvitationPage.vue'),
       meta: { guestOnly: true },
     },
     {

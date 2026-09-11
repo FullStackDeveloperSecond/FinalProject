@@ -21,4 +21,10 @@ describe('admin navigation access', () => {
     expect(canAccessAdminPage('/unknown', ['SuperAdmin'], true)).toBe(false)
     expect(canAccessAdminPage('/products', [], true)).toBe(false)
   })
+
+  it('reserves administrator account management for SuperAdmin', () => {
+    expect(canAccessAdminPage('/administrators', ['SuperAdmin'], true)).toBe(true)
+    expect(canAccessAdminPage('/administrators', ['PrivacyAdmin'], true)).toBe(false)
+    expect(canAccessAdminPage('/administrators', ['SuperAdmin'], false)).toBe(false)
+  })
 })

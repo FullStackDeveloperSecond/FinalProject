@@ -33,6 +33,11 @@ describe('admin router foundation', () => {
     expect(resolved.matched).toHaveLength(1)
   })
 
+  it('registers the SuperAdmin account-management and invitation routes', () => {
+    expect(router.resolve('/administrators').name).toBe('administrators')
+    expect(router.resolve('/login/invitation').name).toBe('admin-invitation')
+  })
+
   it('catches unknown routes', async () => {
     await router.push('/missing-page')
     await router.isReady()
@@ -118,6 +123,28 @@ describe('admin router role guard', () => {
     }
 
     await router.push('/products')
+    await router.isReady()
+
+    expect(router.currentRoute.value.name).toBe('forbidden')
+  })
+
+  it('rejects a non-SuperAdmin from administrator account management', async () => {
+    const auth = useAdminAuthStore()
+    auth.session = {
+      isAuthenticated: true,
+      user: {
+        publicId: 'admin-role-1',
+        displayName: 'Privacy',
+        emailMasked: 'p***@example.test',
+        emailVerified: true,
+        locale: 'zh-TW',
+        roles: ['PrivacyAdmin'],
+      },
+      expiresAtUtc: null,
+      requiresTwoFactor: false,
+    }
+
+    await router.push('/administrators')
     await router.isReady()
 
     expect(router.currentRoute.value.name).toBe('forbidden')

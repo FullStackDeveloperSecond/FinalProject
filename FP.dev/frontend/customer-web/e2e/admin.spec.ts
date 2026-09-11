@@ -137,6 +137,11 @@ function recordDetailFactValue(page: Page, regionName: string, label: string) {
   return fact.locator('dd')
 }
 
+function recordSummaryFactValue(page: Page, label: string) {
+  const fact = page.locator('.record-detail__summary > div').filter({ hasText: label })
+  return fact.locator('dd')
+}
+
 async function getMemberAntiforgeryToken(api: APIRequestContext): Promise<string> {
   const response = await api.get('/api/v1/security/antiforgery-token', {
     headers: { 'X-DoSelect-Client': 'member' },
@@ -711,7 +716,7 @@ test('a seeded administrator can enroll TOTP, reject a wrong code, and sign in a
   expect(homeDelivered.order.orderStatus).toBe('Completed')
   expect(homeDelivered.order.amounts.paidAmount).toBe(homeDelivered.order.amounts.grandTotal)
   expect(homeDelivered.order.paidAtUtc).toBeTruthy()
-  await expect(page.getByText('Paid', { exact: true })).toBeVisible()
+  await expect(recordSummaryFactValue(page, '付款狀態')).toHaveText('已付款')
   await expect(page.getByText('已付金額', { exact: true }).locator('..'))
     .toContainText(`NT$ ${homeDelivered.order.amounts.grandTotal}`)
 
@@ -1021,7 +1026,7 @@ test('a delivered order can be returned, refunded and allowed to update the orde
   // reliable there. Use the real UI search as a smoke test that the filter works, then resolve
   // the specific refund that belongs to *this* order rather than assuming there is only one.
   await page.goto('./refunds')
-  await page.getByLabel('退款狀態').selectOption('pendingReview')
+  await page.getByLabel('退款狀態', { exact: true }).selectOption('pendingReview')
   await page.getByRole('button', { name: '搜尋' }).click()
   await expect(page.getByRole('cell', { name: '待審核' }).first()).toBeVisible()
   const refundPublicId = await page.evaluate(async (orderPublicId) => {
@@ -1250,7 +1255,7 @@ test('a delivered order can be returned, refunded and allowed to update the orde
   await expect(page.getByText(allowanceResult.body.allowanceNumber)).toBeVisible()
 
   await customerPage.reload()
-  await expect(customerPage.getByText('折讓筆數：1', { exact: true })).toBeVisible()
+  await expect(recordDetailFactValue(customerPage, '模擬發票', '折讓筆數')).toHaveText('1')
 
   await customerContext.close()
 })
@@ -1475,7 +1480,7 @@ test('a partially returned order settles as PartiallyRefunded and a different gu
   // pendingReview refund can coexist — resolve the one that belongs to *this* order instead of
   // assuming the filtered list has exactly one row.
   await page.goto('./refunds')
-  await page.getByLabel('退款狀態').selectOption('pendingReview')
+  await page.getByLabel('退款狀態', { exact: true }).selectOption('pendingReview')
   await page.getByRole('button', { name: '搜尋' }).click()
   await expect(page.getByRole('cell', { name: '待審核' }).first()).toBeVisible()
   const refundPublicId = await page.evaluate(async (orderPublicId) => {

@@ -3,6 +3,7 @@ export interface AdminNavigationGroup { id: string; title: string; icon: string;
 export const adminNavigation: AdminNavigationGroup[] = [
   { id: 'members', title: '會員管理', icon: 'support', description: '查詢會員與管理帳號狀態', items: [
     { title: '會員管理', to: '/members', icon: 'support', description: '查詢會員詳情與帳號啟停用紀錄。' },
+    { title: '管理員帳號', to: '/administrators', icon: 'support', description: '新增管理員並管理既有角色權限。' },
   ] },
   { id: 'support', title: '客服與售後', icon: 'support', description: '受理問題、追蹤案件與售後服務', items: [
     { title: '客服 SLA 佇列', to: '/support', icon: 'support', description: '受理待處理案件，掌握回覆時限。' },

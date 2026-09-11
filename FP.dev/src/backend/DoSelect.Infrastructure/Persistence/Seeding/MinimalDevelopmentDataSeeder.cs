@@ -1254,26 +1254,27 @@ public sealed class MinimalDevelopmentDataSeeder(
     private async Task EnsureCoreTransactionJourneyAsync(CancellationToken cancellationToken)
     {
         var coupon = await dbContext.Coupons.SingleOrDefaultAsync(
-            candidate => candidate.Code == "CREATOR10",
+            candidate => candidate.Code == DemoCouponUpdater.SchoolCode,
             cancellationToken);
         if (coupon is null)
         {
             coupon = new Coupon(
-                MinimalDevelopmentSeedDefinitions.Creator10CouponPublicId,
+                MinimalDevelopmentSeedDefinitions.School2026CouponPublicId,
                 new CouponCreation(
-                    "CREATOR10",
-                    "創作者指定分類九折",
+                    DemoCouponUpdater.SchoolCode,
+                    "9月開學季優惠",
                     CouponDiscountType.Percentage,
-                    0.10m,
-                    20_000m,
-                    2_000m,
-                    MinimalDevelopmentSeedDefinitions.CreatedAtUtc,
-                    new DateTime(2030, 1, 1, 0, 0, 0, DateTimeKind.Utc),
-                    10_000,
+                    0.05m,
+                    null,
+                    null,
+                    new DateTime(2026, 8, 31, 16, 0, 0, DateTimeKind.Utc),
+                    new DateTime(2026, 9, 30, 16, 0, 0, DateTimeKind.Utc),
+                    null,
                     1,
                     false,
                     false,
-                    CouponScopeType.Restricted),
+                    CouponScopeType.All,
+                    MultiItemDiscountValue: 0.10m),
                 MinimalDevelopmentSeedDefinitions.CreatedAtUtc);
             coupon.ActivateNow(
                 CouponUsageState.Unused,
@@ -1281,33 +1282,6 @@ public sealed class MinimalDevelopmentDataSeeder(
             dbContext.Coupons.Add(coupon);
             await dbContext.SaveChangesAsync(cancellationToken);
         }
-
-        var eligibleCategoryCodes = new[]
-        {
-            CompatibilityCatalogContract.Categories.Cpu,
-            CompatibilityCatalogContract.Categories.Gpu,
-            CompatibilityCatalogContract.Categories.Memory,
-        };
-        var eligibleCategoryIds = await dbContext.Categories
-            .Where(category => eligibleCategoryCodes.Contains(category.Code))
-            .Select(category => category.Id)
-            .ToListAsync(cancellationToken);
-        if (eligibleCategoryIds.Count != eligibleCategoryCodes.Length)
-        {
-            throw new InvalidOperationException(
-                "The core transaction seed requires the CPU, GPU, and memory categories.");
-        }
-
-        var existingCategoryIds = await dbContext.CouponCategories
-            .Where(link => link.CouponId == coupon.Id)
-            .Select(link => link.CategoryId)
-            .ToListAsync(cancellationToken);
-        dbContext.CouponCategories.AddRange(eligibleCategoryIds
-            .Except(existingCategoryIds)
-            .Select(categoryId => new CouponCategory(
-                coupon.Id,
-                categoryId,
-                MinimalDevelopmentSeedDefinitions.CreatedAtUtc)));
 
         if (await dbContext.Carts.AnyAsync(
                 cart => cart.PublicId == MinimalDevelopmentSeedDefinitions.CoreTransactionGuestCartPublicId,
@@ -1357,8 +1331,7 @@ public sealed class MinimalDevelopmentDataSeeder(
             MinimalDevelopmentSeedDefinitions.CoreTransactionAssemblyGroupKey,
             now)));
         // The extra standalone GPU keeps the compatibility catalogue's established NT$5,000
-        // per-component price contract intact while bringing CPU／GPU／Memory coupon-eligible
-        // subtotal to CREATOR10's NT$20,000 threshold.
+        // per-component price contract intact while exercising SCHOOL2026's multi-item tier.
         dbContext.CartItems.Add(new CartItem(
             Guid.CreateVersion7(),
             cart.Id,

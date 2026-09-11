@@ -14785,10 +14785,339 @@
           }
         }
       }
+    },
+    "/api/v1/admin/administrators": {
+      "get": {
+        "tags": [
+          "AdminAccounts"
+        ],
+        "parameters": [
+          {
+            "name": "Search",
+            "in": "query",
+            "schema": {
+              "maxLength": 100,
+              "minLength": 0,
+              "type": "string"
+            }
+          },
+          {
+            "name": "Status",
+            "in": "query",
+            "schema": {
+              "$ref": "#/components/schemas/AccountStatus"
+            }
+          },
+          {
+            "name": "Role",
+            "in": "query",
+            "schema": {
+              "maxLength": 64,
+              "minLength": 0,
+              "type": "string"
+            }
+          },
+          {
+            "name": "Page",
+            "in": "query",
+            "schema": {
+              "maximum": 1000000,
+              "minimum": 1,
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int32"
+            }
+          },
+          {
+            "name": "PageSize",
+            "in": "query",
+            "schema": {
+              "maximum": 100,
+              "minimum": 1,
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminAccountPage"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminAccountPage"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminAccountPage"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "AdminAccounts"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateAdminAccountRequest"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateAdminAccountRequest"
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateAdminAccountRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminAccountDto"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminAccountDto"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminAccountDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/administrators/{publicId}": {
+      "get": {
+        "tags": [
+          "AdminAccounts"
+        ],
+        "parameters": [
+          {
+            "name": "publicId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminAccountDto"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminAccountDto"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminAccountDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/administrators/{publicId}/roles": {
+      "put": {
+        "tags": [
+          "AdminAccounts"
+        ],
+        "parameters": [
+          {
+            "name": "publicId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateAdminRolesRequest"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateAdminRolesRequest"
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateAdminRolesRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminAccountDto"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminAccountDto"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminAccountDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/administrators/{publicId}/actions/resend-invitation": {
+      "post": {
+        "tags": [
+          "AdminAccounts"
+        ],
+        "parameters": [
+          {
+            "name": "publicId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResendAdminInvitationRequest"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResendAdminInvitationRequest"
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResendAdminInvitationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/api/v1/admin/auth/invitations/accept": {
+      "post": {
+        "tags": [
+          "AdminInvitations"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AcceptAdminInvitationRequest"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AcceptAdminInvitationRequest"
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "$ref": "#/components/schemas/AcceptAdminInvitationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
     }
   },
   "components": {
     "schemas": {
+      "AcceptAdminInvitationRequest": {
+        "required": [
+          "token",
+          "newPassword"
+        ],
+        "type": "object",
+        "properties": {
+          "publicId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "token": {
+            "maxLength": 4000,
+            "minLength": 1,
+            "type": "string"
+          },
+          "newPassword": {
+            "maxLength": 128,
+            "minLength": 12,
+            "type": "string"
+          }
+        }
+      },
       "AcceptedPolicyVersions": {
         "required": [
           "terms",
@@ -14908,6 +15237,112 @@
               "string"
             ],
             "format": "byte"
+          }
+        }
+      },
+      "AdminAccountDto": {
+        "required": [
+          "publicId",
+          "displayName",
+          "employeeCode",
+          "email",
+          "status",
+          "emailVerified",
+          "twoFactorEnabled",
+          "roles",
+          "createdAtUtc",
+          "updatedAtUtc",
+          "rowVersion"
+        ],
+        "type": "object",
+        "properties": {
+          "publicId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "employeeCode": {
+            "type": "string"
+          },
+          "email": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "emailVerified": {
+            "type": "boolean"
+          },
+          "twoFactorEnabled": {
+            "type": "boolean"
+          },
+          "roles": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "createdAtUtc": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAtUtc": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "rowVersion": {
+            "type": "string",
+            "format": "byte"
+          }
+        }
+      },
+      "AdminAccountPage": {
+        "required": [
+          "items",
+          "totalCount",
+          "page",
+          "pageSize",
+          "availableRoles"
+        ],
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AdminAccountDto"
+            }
+          },
+          "totalCount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "page": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "pageSize": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "availableRoles": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           }
         }
       },
@@ -20202,6 +20637,41 @@
               "string"
             ],
             "format": "int32"
+          }
+        }
+      },
+      "CreateAdminAccountRequest": {
+        "required": [
+          "email",
+          "displayName",
+          "employeeCode",
+          "roles"
+        ],
+        "type": "object",
+        "properties": {
+          "email": {
+            "maxLength": 320,
+            "minLength": 3,
+            "type": "string"
+          },
+          "displayName": {
+            "maxLength": 100,
+            "minLength": 1,
+            "type": "string"
+          },
+          "employeeCode": {
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{1,63}$",
+            "type": "string"
+          },
+          "roles": {
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "confirmSuperAdmin": {
+            "type": "boolean"
           }
         }
       },
@@ -26381,6 +26851,20 @@
           }
         }
       },
+      "ResendAdminInvitationRequest": {
+        "required": [
+          "rowVersion"
+        ],
+        "type": "object",
+        "properties": {
+          "rowVersion": {
+            "maxLength": 8,
+            "minLength": 8,
+            "type": "string",
+            "format": "byte"
+          }
+        }
+      },
       "RestockDisposition": {
         "enum": [
           "resellable",
@@ -28690,6 +29174,36 @@
           }
         }
       },
+      "UpdateAdminRolesRequest": {
+        "required": [
+          "roles",
+          "rowVersion",
+          "reasonCode"
+        ],
+        "type": "object",
+        "properties": {
+          "roles": {
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "rowVersion": {
+            "maxLength": 8,
+            "minLength": 8,
+            "type": "string",
+            "format": "byte"
+          },
+          "reasonCode": {
+            "pattern": "^(job_change|staffing_change|permission_correction)$",
+            "type": "string"
+          },
+          "confirmSuperAdmin": {
+            "type": "boolean"
+          }
+        }
+      },
       "UpdateBrandRequest": {
         "required": [
           "nameZhTw",
@@ -29642,6 +30156,12 @@
     },
     {
       "name": "AdminAuth"
+    },
+    {
+      "name": "AdminAccounts"
+    },
+    {
+      "name": "AdminInvitations"
     }
   ]
 }
