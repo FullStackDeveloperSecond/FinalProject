@@ -56,6 +56,7 @@ function sampleTicket(availableActions = ['addMessage', 'cancel']) {
     subject: '訂單延遲問題',
     status: 'open',
     priority: 'normal',
+    createdAtUtc: '2026-08-19T02:00:00Z',
     firstResponseDueAtUtc: '2026-08-19T04:00:00Z',
     resolutionDueAtUtc: '2026-08-20T03:00:00Z',
     rowVersion: 'AAAAAAAAAAE=',
@@ -120,6 +121,15 @@ describe('SupportTicketDetailPage', () => {
     supportMocks.cancel.mutateAsync.mockReset().mockResolvedValue(undefined)
     supportMocks.upload.mutateAsync.mockReset()
     supportMocks.upload.reset.mockReset()
+  })
+
+  it('shows the customer-facing creation time without internal SLA deadlines', async () => {
+    const wrapper = await mountPage()
+
+    expect(wrapper.text()).toContain('建立時間')
+    expect(wrapper.text()).toContain('2026年8月19日 上午10:00')
+    expect(wrapper.text()).not.toContain('首次人工回覆期限')
+    expect(wrapper.text()).not.toContain('目標結案期限')
   })
 
   it('provides a labelled, constrained attachment input only while replies are allowed', async () => {

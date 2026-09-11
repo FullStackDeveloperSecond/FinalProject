@@ -11,6 +11,11 @@ describe('Taipei date presentation', () => {
     expect(formatTaipeiDateTime(instant)).toContain('凌晨12:30')
   })
 
+  it('treats API date-time strings without an offset as UTC', () => {
+    expect(formatTaipeiDateTime('2026-09-11T06:19:24.155')).toContain('下午2:19')
+    expect(formatTaipeiDateTime('2026-09-11T14:19:24.155+08:00')).toContain('下午2:19')
+  })
+
   it('uses a stable empty marker for missing or invalid values', () => {
     expect(formatTaipeiDateTime(null)).toBe('—')
     expect(formatTaipeiDate('not-a-date')).toBe('—')

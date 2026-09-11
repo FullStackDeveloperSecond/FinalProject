@@ -170,12 +170,8 @@ async function handleCancel() {
           <dd>{{ priorityLabels[ticket.priority] }}</dd>
         </div>
         <div>
-          <dt>首次人工回覆期限</dt>
-          <dd>{{ formatDateTime(ticket.firstResponseDueAtUtc) }}</dd>
-        </div>
-        <div>
-          <dt>目標結案期限</dt>
-          <dd>{{ formatDateTime(ticket.resolutionDueAtUtc) }}</dd>
+          <dt>建立時間</dt>
+          <dd>{{ formatDateTime(ticket.createdAtUtc) }}</dd>
         </div>
       </dl>
 
