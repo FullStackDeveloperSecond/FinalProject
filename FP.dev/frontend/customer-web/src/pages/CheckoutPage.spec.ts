@@ -417,7 +417,7 @@ describe('CheckoutPage', () => {
     expect(wrapper.text()).not.toContain('最終金額、折扣、運費及庫存以後端建立訂單時重新計算為準')
   })
 
-  it('sorts every payment method consistently and shows its payment deadline', async () => {
+  it('sorts every payment method consistently without duplicating payment deadlines', async () => {
     const apiOrder: PaymentMethod[] = [
       'cashOnDelivery',
       'googlePay',
@@ -445,10 +445,16 @@ describe('CheckoutPage', () => {
       'cashOnDelivery',
     ])
     expect(choices).toHaveLength(7)
-    expect(choices.every(choice => choice.text().includes('付款期限：'))).toBe(true)
-    expect(choices[0]!.text()).toContain('建立付款後 15 分鐘內')
-    expect(choices[4]!.text()).toContain('建立付款後 3 天內')
-    expect(choices[6]!.text()).toContain('收貨或取貨時')
+    expect(choices.every(choice => !choice.text().includes('付款期限：'))).toBe(true)
+    expect(choices.map(choice => choice.text())).toEqual([
+      '信用卡',
+      'LINE Pay',
+      'Apple Pay',
+      'Google Pay',
+      'ATM 虛擬帳號',
+      '超商繳費代碼',
+      '貨到付款',
+    ])
   })
 
   it('does not provide a second coupon entry point on checkout', async () => {

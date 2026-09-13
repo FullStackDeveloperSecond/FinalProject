@@ -1159,10 +1159,7 @@ function receiptKey() {
             name="payment-method"
             :value="method"
           >
-          <span class="checkout-page__payment-copy">
-            <span>{{ PAYMENT_METHOD_PRESENTATION[method].label }}</span>
-            <small>付款期限：{{ PAYMENT_METHOD_PRESENTATION[method].deadline }}</small>
-          </span>
+          <span>{{ PAYMENT_METHOD_PRESENTATION[method].label }}</span>
         </label>
       </section>
 
@@ -1477,15 +1474,6 @@ function receiptKey() {
   align-items: center;
   gap: 0.5rem;
   margin-block: 0.5rem;
-}
-
-.checkout-page__payment-copy {
-  display: grid;
-  gap: 0.15rem;
-}
-
-.checkout-page__payment-copy small {
-  color: var(--color-text-muted);
 }
 
 .checkout-page__summary {
