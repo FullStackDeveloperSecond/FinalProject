@@ -75,7 +75,8 @@ public sealed class GuestOrderAccessController(
             new AuthenticationProperties
             {
                 IsPersistent = false,
-                ExpiresUtc = success.ExpiresAtUtc,
+                ExpiresUtc = new DateTimeOffset(
+                    DateTime.SpecifyKind(success.ExpiresAtUtc, DateTimeKind.Utc)),
             });
 
         return Ok(new GuestOrderAccessVerifiedDto(success.OrderPublicId, success.ExpiresAtUtc));

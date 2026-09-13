@@ -805,9 +805,9 @@ function receiptKey() {
     <form
       v-else-if="cart && policyVersions"
       class="checkout-page__submit"
-      @input.capture="touchField"
-      @change.capture="touchField"
-      @focusout.capture="touchField"
+      @input="touchField"
+      @change="touchField"
+      @focusout="touchField"
       @submit.prevent="submitOrder"
     >
       <section aria-labelledby="buyer-title">

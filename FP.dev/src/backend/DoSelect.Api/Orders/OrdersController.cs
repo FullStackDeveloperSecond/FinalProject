@@ -149,7 +149,8 @@ public sealed class OrdersController : ControllerBase
                 new AuthenticationProperties
                 {
                     IsPersistent = false,
-                    ExpiresUtc = expiresAtUtc,
+                    ExpiresUtc = new DateTimeOffset(
+                        DateTime.SpecifyKind(expiresAtUtc, DateTimeKind.Utc)),
                 });
         }
 

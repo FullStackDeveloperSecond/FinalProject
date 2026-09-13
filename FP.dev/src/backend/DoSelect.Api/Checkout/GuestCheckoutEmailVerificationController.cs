@@ -80,7 +80,11 @@ public sealed class GuestCheckoutEmailVerificationController(
             new AuthenticationProperties
             {
                 IsPersistent = false,
-                ExpiresUtc = success.ExpiresAtUtc,
+                // SQL Server does not preserve DateTime.Kind. Treat this UTC-named persistence
+                // value as UTC explicitly; otherwise hosts outside UTC shift the cookie expiry by
+                // their local offset and can make a fresh proof immediately invalid.
+                ExpiresUtc = new DateTimeOffset(
+                    DateTime.SpecifyKind(success.ExpiresAtUtc, DateTimeKind.Utc)),
             });
         return Ok(new GuestCheckoutEmailVerifiedDto(true, success.ExpiresAtUtc));
     }
