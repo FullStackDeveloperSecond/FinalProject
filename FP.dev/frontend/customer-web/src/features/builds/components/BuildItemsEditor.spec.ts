@@ -106,6 +106,17 @@ describe('BuildItemsEditor', () => {
     expect(getEmitted()).toHaveLength(0)
   })
 
+  it('commits a typed quantity on input before an unrelated render can restore the old prop', async () => {
+    const item: EditableBuildItem = { skuPublicId: 'sku-1', quantity: 1, name: '測試記憶體', categoryCode: 'MEMORY' }
+    const { wrapper, getEmitted } = mountEditor([item])
+
+    const quantityInput = wrapper.find('input[type="number"]')
+    ;(quantityInput.element as HTMLInputElement).value = '5'
+    await quantityInput.trigger('input')
+
+    expect(getEmitted()[0].quantity).toBe(5)
+  })
+
   /**
    * 組長 PR #35 round-3 review, P1-2: EfCompatibilityCheckService.MergeAndValidateItems merges by
    * SkuPublicId — picking the same SKU twice for a multi-quantity slot used to append a second row

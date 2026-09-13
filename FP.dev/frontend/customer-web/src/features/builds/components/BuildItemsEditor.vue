@@ -129,7 +129,7 @@ function updateQuantity(skuPublicId: string, categoryCode: string, quantity: num
             :value="item.quantity"
             :disabled="disabled"
             :aria-label="`${item.name} 數量`"
-            @change="updateQuantity(item.skuPublicId, slot.code, Number(($event.target as HTMLInputElement).value))"
+            @input="updateQuantity(item.skuPublicId, slot.code, Number(($event.target as HTMLInputElement).value))"
           >
           <button
             type="button"
