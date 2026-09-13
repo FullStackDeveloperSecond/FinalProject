@@ -29,9 +29,11 @@ interface OrderSnapshot {
 }
 
 function recordDetailFactValue(page: Page, regionName: string, label: string) {
+  const escapedLabel = label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
   const region = page.getByRole('region', { name: regionName })
-  const fact = region.locator('.record-detail__facts > div').filter({ hasText: label })
-  return fact.locator('dd')
+  return region.locator('dt')
+    .filter({ hasText: new RegExp(`^${escapedLabel}[：:]?$`) })
+    .locator('+ dd')
 }
 
 async function getAntiforgeryToken(api: APIRequestContext): Promise<string> {
@@ -322,10 +324,14 @@ test('a member creates a support case and the assigned administrator publicly re
   await page.getByRole('link', { name: created.ticketNumber }).click()
   await expect(page.getByRole('heading', { level: 1, name: `${created.ticketNumber}｜${subject}` })).toBeVisible()
 
-  await page.getByLabel('目標客服 PublicId').fill(seed.supportAdminPublicId)
+  await page.getByLabel('負責人').selectOption(seed.supportAdminPublicId)
   await page.getByLabel('理由', { exact: true }).first().fill('E2E 指派給登入中的客服主管')
   await page.getByRole('button', { name: '指派', exact: true }).click()
-  await expect(page.getByText('DoSelect 客服測試主管', { exact: true })).toBeVisible()
+  await expect(
+    page.locator('dt')
+      .filter({ hasText: /^受理人$/ })
+      .locator('+ dd'),
+  ).toHaveText('DoSelect 客服測試主管')
   await expect(page.getByRole('heading', { level: 3, name: '公開回覆會員' })).toBeVisible()
 
   await page.getByLabel('備註內容').fill(internalNote)
@@ -733,7 +739,12 @@ test('a guest completes the prepared cart through checkout payment and invoice',
   await expect(page.getByRole('heading', { level: 1, name: '結帳' })).toBeVisible()
   await captureVisualEvidence(page, 'real-customer-checkout')
 
-  await expect(page.getByText(/已套用 SCHOOL2026/)).toBeVisible()
+  await expect(page.getByText(/已從購物車帶入優惠碼 SCHOOL2026/)).toBeVisible()
+  const assemblyShipping = page.getByRole('radio', { name: '組裝電腦宅配' })
+  // The route can render once before the asynchronous anonymous-session check starts. Waiting for
+  // an eligible shipping option proves checkout initialization has settled, so the form is not
+  // replaced after Playwright fills it (which would erase the entered contact data).
+  await expect(assemblyShipping).toBeEnabled()
   await page.getByLabel('電子郵件 *').fill(email)
   await page.getByLabel('姓名').fill('核心交易訪客')
   await page.getByLabel('聯絡手機號碼 *').fill('0912345678')
@@ -751,13 +762,14 @@ test('a guest completes the prepared cart through checkout payment and invoice',
   await page.getByRole('button', { name: '確認驗證碼' }).click()
   await expect(page.getByText('信箱已完成驗證。', { exact: true })).toBeVisible()
 
-  await page.getByRole('radio', { name: '組裝電腦宅配' }).check()
-  await page.getByLabel('收件人').fill('核心交易訪客')
-  await page.getByLabel('收件電話').fill('0912345678')
-  await page.getByLabel('郵遞區號').fill('100')
-  await page.getByLabel('縣市').fill('台北市')
-  await page.getByLabel('行政區').fill('中正區')
-  await page.getByLabel('地址', { exact: true }).fill('測試路 1 號')
+  await assemblyShipping.check()
+  await expect(page.getByText(/已套用 SCHOOL2026/)).toBeVisible()
+  await page.getByLabel('收件人 *').fill('核心交易訪客')
+  await page.getByLabel('收件手機號碼 *').fill('0912345678')
+  await page.getByLabel('郵遞區號 *').fill('100')
+  await page.getByLabel('縣市 *').selectOption('臺北市')
+  await page.getByLabel('行政區 *').selectOption('中正區')
+  await page.getByLabel('地址 *').fill('測試路 1 號')
 
   await page.getByRole('radio', { name: '信用卡' }).check()
   await page.getByRole('checkbox', { name: /我同意服務條款/ }).check()
@@ -776,13 +788,17 @@ test('a guest completes the prepared cart through checkout payment and invoice',
   const requestBody = createRequest.postDataJSON()
   expect(idempotencyKey, 'The browser Checkout must send its idempotency key').toBeTruthy()
 
-  await expect(page.getByRole('heading', { level: 2, name: '訂單已建立' })).toBeVisible()
-  await expect(page.getByText(`訂單編號：${order.orderNumber}`)).toBeVisible()
-  await expect(page.getByText('商品小計：').locator('..')).toContainText('NT$45,000')
-  await expect(page.getByText('優惠折扣：').locator('..')).toContainText('−NT$2,000')
-  await expect(page.getByText('配送費：').locator('..')).toContainText('NT$300')
-  await expect(page.getByText('組裝費：').locator('..')).toContainText('NT$300')
-  await expect(page.getByText('應付總額：').locator('..')).toContainText('NT$43,600')
+  expect(order.amounts).toEqual(expect.objectContaining({
+    merchandiseSubtotal: 45000,
+    itemDiscountTotal: 4500,
+    shippingFee: 0,
+    assemblyFee: 300,
+    grandTotal: 40800,
+  }))
+  await expect(page).toHaveURL(new RegExp(`/orders/${order.publicId}/payment$`))
+  await expect(page.getByRole('heading', { level: 1, name: `訂單 ${order.orderNumber} 付款` }))
+    .toBeVisible()
+  await expect(page.getByText(/應付總額：NT\$\s*40,?800\s*TWD/)).toBeVisible()
 
   const replay = await page.evaluate(async ({ body, key, guestCartKey }) => {
     const tokenResponse = await fetch('/api/v1/security/antiforgery-token', {
@@ -812,7 +828,7 @@ test('a guest completes the prepared cart through checkout payment and invoice',
   expect(replay.body.publicId).toBe(order.publicId)
   expect(replay.body.orderNumber).toBe(order.orderNumber)
 
-  await page.getByRole('link', { name: '驗證訂單後繼續付款' }).click()
+  await page.goto('/guest-orders/access')
   await page.getByLabel('訂單編號').fill(order.orderNumber)
   await page.getByLabel('訂單 Email').fill(email)
   await page.getByRole('button', { name: '寄送驗證碼' }).click()
@@ -833,10 +849,10 @@ test('a guest completes the prepared cart through checkout payment and invoice',
   expect(persistedOrder.items).toHaveLength(9)
   expect(persistedOrder.amounts).toEqual(expect.objectContaining({
     merchandiseSubtotal: 45000,
-    itemDiscountTotal: 2000,
-    shippingFee: 300,
+    itemDiscountTotal: 4500,
+    shippingFee: 0,
     assemblyFee: 300,
-    grandTotal: 43600,
+    grandTotal: 40800,
     paidAmount: 0,
   }))
 

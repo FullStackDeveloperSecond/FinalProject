@@ -24,7 +24,10 @@ export default defineConfig({
   testDir: './e2e',
   fullyParallel: true,
   forbidOnly: isCi,
-  retries: isCi ? 1 : 0,
+  // The suite deliberately mutates shared disposable-database state (including TOTP enrollment).
+  // Retrying in the same run cannot reproduce the original preconditions and obscures the first
+  // actionable failure, so CI reports that failure directly instead.
+  retries: 0,
   workers: isCi ? 1 : undefined,
   outputDir: 'test-results',
   reporter: isCi

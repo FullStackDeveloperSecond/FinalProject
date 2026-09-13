@@ -132,9 +132,11 @@ interface ShipmentCommandCapture {
 }
 
 function recordDetailFactValue(page: Page, regionName: string, label: string) {
+  const escapedLabel = label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
   const region = page.getByRole('region', { name: regionName })
-  const fact = region.locator('.record-detail__facts > div').filter({ hasText: label })
-  return fact.locator('dd')
+  return region.locator('dt')
+    .filter({ hasText: new RegExp(`^${escapedLabel}[：:]?$`) })
+    .locator('+ dd')
 }
 
 function recordSummaryFactValue(page: Page, label: string) {
