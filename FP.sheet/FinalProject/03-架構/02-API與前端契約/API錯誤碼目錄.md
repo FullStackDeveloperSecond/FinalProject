@@ -58,6 +58,12 @@
 | `admin_challenge_invalid` | 400 | 管理員 TOTP／綁定／重綁 Challenge 缺失、過期、已使用或與 PublicId／目前使用者不符 |
 | `admin_challenge_rate_limited` | 429 | 同一管理員、IP 或 Challenge 的二階段驗證嘗試超限；Challenge 失效且需重新登入或重新開始流程 |
 | `admin_rebind_step_up_required` | 400 | TOTP 重綁前沒有恰好提供現有 TOTP 或單組 Recovery Code 作為 Step-up 憑證 |
+| `admin_email_duplicate` | 409 | 建立管理員時 Email 已被既有帳號使用 |
+| `admin_employee_code_duplicate` | 409 | 建立管理員時員工編號已存在 |
+| `admin_invitation_invalid` | 400 | 舊邀請相容入口的 Token、帳號狀態或期限無效；不得回傳更詳細帳號資訊 |
+| `admin_role_invalid` | 400 | 建立或修改管理員時角色為空或包含非白名單角色 |
+| `last_super_admin_required` | 409 | 角色異動會移除最後一位可用的 SuperAdmin |
+| `super_admin_confirmation_required` | 400 | 建立或角色異動包含新增／移除 SuperAdmin，但沒有明確確認 |
 | `guest_order_verification_invalid` | 400 | 訪客訂單驗證碼無效；訊息不得揭露訂單存在性 |
 | `guest_order_access_expired` | 401 | 限單存取權杖已到期 |
 | `guest_order_scope_mismatch` | 404 | 權杖嘗試存取另一張訂單 |

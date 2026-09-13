@@ -101,6 +101,7 @@ C-14 的付款方式只依 `ShippingOptionsDto.allowedPaymentMethods:PaymentMeth
 | A-27 | `/admin/reports/:reportKey` | Report-specific Policy | 七個 M 報表共用殼層、日期／篩選／摘要／圖表／明細／匯出 | UC-REPORT-01 |
 | A-28 | `/admin/ai/usage` | 依成本可見 Policy | AI 次數、Token、成本彙總、保護狀態；成本明細只限 Finance／SuperAdmin | UC-AI-SUPPORT-04 |
 | A-29 | `/admin/inventory/reconciliation-cases` | Inventory Manage | 對帳案件列表與狀態篩選、確認受理、駁回（核對基準錯誤，不動庫存）與修正庫存（帳本重算值＋零差額異動）；原因白名單依動作分開、說明必填、二次確認 | Reconciliation Case Endpoints、UC-ADM-INV-01 |
+| A-30 | `/admin/administrators` | 已完成 TOTP 的 SuperAdmin | 管理員搜尋／篩選／分頁、帳號詳情、直接建立帳號與初始密碼、角色修改；建立後首次登入要求 TOTP 綁定，禁止把會員帳號轉為管理員 | Admin Account Endpoints、`RoleAssignment.Manage` |
 
 ## 七個報表 Route 白名單
 

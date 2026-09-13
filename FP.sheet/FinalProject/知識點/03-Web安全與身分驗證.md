@@ -2,14 +2,14 @@
 
 ## 一張表分清楚
 
-| 名詞 | 核心問題 | DoSelect 做法 |
-|---|---|---|
-| Authentication | 你是誰？ | Identity 儲存帳號；Cookie scheme 驗 member、admin、guest access、admin challenge |
-| Authorization | 你能做什麼？ | Role、claim、policy；資源擁有權另確認 |
-| CORS | 瀏覽器能否讓某 origin 的前端讀跨來源回應？ | 明確 origins/methods/headers，並 `AllowCredentials` |
-| CSRF | 瀏覽器自動帶 Cookie 時，惡意網站能否代送狀態變更？ | unsafe method 驗 Antiforgery token |
-| XSS | 不可信內容能否在可信頁執行 script？ | 輸出編碼、避免不可信 HTML；HttpOnly 不能消除 XSS |
-| Credentials | fetch 是否附 Cookie/HTTP auth 等 | client 設 `credentials: 'include'` |
+| 名詞             | 核心問題                          | DoSelect 做法                                                             |
+| -------------- | ----------------------------- | ----------------------------------------------------------------------- |
+| Authentication | 你是誰？                          | Identity 儲存帳號；Cookie scheme 驗 member、admin、guest access、admin challenge |
+| Authorization  | 你能做什麼？                        | Role、claim、policy；資源擁有權另確認                                              |
+| CORS           | 瀏覽器能否讓某 origin 的前端讀跨來源回應？     | 明確 origins/methods/headers，並 `AllowCredentials`                         |
+| CSRF           | 瀏覽器自動帶 Cookie 時，惡意網站能否代送狀態變更？ | unsafe method 驗 Antiforgery token                                       |
+| XSS            | 不可信內容能否在可信頁執行 script？         | 輸出編碼、避免不可信 HTML；HttpOnly 不能消除 XSS                                       |
+| Credentials    | fetch 是否附 Cookie/HTTP auth 等  | client 設 `credentials: 'include'`                                       |
 
 ## Cookie 登入
 

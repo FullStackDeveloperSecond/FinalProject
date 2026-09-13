@@ -70,6 +70,11 @@
 | `GuestOrderAccessVerification` | `requestPublicId`、`code:string(6)`；成功回限單、可撤銷、30 分鐘內可多次使用的 HttpOnly Cookie 與 `expiresAtUtc`；Challenge 本身單次使用 |
 | `CurrentUserDto` | `publicId`、`displayName`、`emailMasked`、`emailVerified`、`locale`、`roles?:string[]`（只在管理端） |
 | `AuthSessionDto` | `isAuthenticated`、`user?:CurrentUserDto`、`expiresAtUtc?`、`requiresTwoFactor?:bool`；管理端只有完成 2FA 才回 Roles／Policies |
+| `AdminAccountQuery` | `search?`、`status?`、`role?`、`page:int>=1`、`pageSize:int(1..100)`；搜尋比對顯示名稱、員工編號及 Email |
+| `AdminAccountDto` | `publicId`、`displayName`、`employeeCode`、`email`、`status`、`emailVerified`、`twoFactorEnabled`、`roles[]`、`createdAtUtc`、`updatedAtUtc`、`rowVersion`；不回傳密碼、TOTP Secret 或 Recovery Code |
+| `AdminAccountPage` | `items:AdminAccountDto[]`、`totalCount`、`page`、`pageSize`、`availableRoles[]` |
+| `CreateAdminAccountRequest` | `email:string(3..320)`、`password:string(12..128)`、`displayName:string(1..100)`、`employeeCode` 符合 `^[A-Za-z0-9][A-Za-z0-9_-]{1,63}$`、`roles:string[1..]`、`confirmSuperAdmin:bool`；建立時 Email 由 SuperAdmin 核實，首次登入仍須綁定 TOTP |
+| `UpdateAdminRolesRequest` | `roles:string[1..]`、`rowVersion:byte[8]`、`reasonCode:job_change/staffing_change/permission_correction`、`confirmSuperAdmin:bool` |
 | `MemberProfileDto` | `publicId`、`displayName`、`emailMasked`、`emailVerified`、`phone?`、`locale`、`createdAtUtc`、`rowVersion` |
 | `UpdateMemberProfileRequest` | `displayName:string(1..100)`、`phone?:string(6..32)`、`locale:enum`、`rowVersion`；不可用此 DTO 修改 Email 或角色 |
 | `CreateMemberAddressRequest` | `label:string(1..50)`、`recipientName:string(1..100)`、`phone:string(6..32)`、`postalCode:string(1..16)`、`city:string(1..50)`、`district:string(1..50)`、`addressLine1:string(1..300)`、`addressLine2?:string(0..300)`、`isDefault:bool` |
